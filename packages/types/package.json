@@ -1,0 +1,12 @@
+{
+  "name": "@dm-holdfast/supabase-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Supabase-related TypeScript definitions for DM HoldFast.",
+  "types": "./src/index.d.ts",
+  "files": [
+    "src"
+  ],
+  "license": "UNLICENSED"
+}
+
