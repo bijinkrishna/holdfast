@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Task, Team, TaskStatus } from './types';
 
 interface TaskModalProps {
   task: Task | null;          // null = create new
   teams: Team[];
+  allTasks: Task[];
   onSave: (task: Task) => void;
   onDelete?: (taskId: string) => void;
   onClose: () => void;
@@ -40,11 +41,13 @@ const STATUS_COLOR: Record<TaskStatus, string> = {
   'on-hold': 'text-yellow-400',
 };
 
-export default function TaskModal({ task, teams, onSave, onDelete, onClose }: TaskModalProps) {
+export default function TaskModal({ task, teams, allTasks, onSave, onDelete, onClose }: TaskModalProps) {
   const [form, setForm] = useState<Omit<Task, 'id'>>(
     task ? { ...task } : { ...EMPTY_TASK, teamId: teams[0]?.id ?? '' }
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [depSearch, setDepSearch] = useState('');
+  const [showDeps, setShowDeps] = useState(false);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -65,6 +68,38 @@ export default function TaskModal({ task, teams, onSave, onDelete, onClose }: Ta
     onSave(saved);
   }
 
+  function toggleDep(depId: string, checked: boolean) {
+    if (checked) {
+      set('dependencies', [...form.dependencies, depId]);
+    } else {
+      set('dependencies', form.dependencies.filter(d => d !== depId));
+    }
+  }
+
+  const teamMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
+
+  // Available tasks to depend on (exclude self)
+  const availableTasks = useMemo(() => {
+    const selfId = task?.id;
+    return allTasks
+      .filter(t => t.id !== selfId)
+      .filter(t => {
+        if (!depSearch.trim()) return true;
+        return t.name.toLowerCase().includes(depSearch.toLowerCase());
+      });
+  }, [allTasks, task?.id, depSearch]);
+
+  // Warn about scheduling conflicts: dep ends after this task starts
+  const conflictIds = useMemo(() => {
+    return new Set(
+      form.dependencies.filter(depId => {
+        const dep = allTasks.find(t => t.id === depId);
+        if (!dep || !form.startDate) return false;
+        return dep.endDate > form.startDate;
+      })
+    );
+  }, [form.dependencies, form.startDate, allTasks]);
+
   const selectedTeam = teams.find(t => t.id === form.teamId);
 
   return (
@@ -72,9 +107,9 @@ export default function TaskModal({ task, teams, onSave, onDelete, onClose }: Ta
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700"
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-none"
           style={{ borderTop: `3px solid ${selectedTeam?.color ?? '#6366f1'}` }}>
           <div>
             <p className="text-xs text-slate-400 uppercase tracking-wider mb-0.5">
@@ -215,10 +250,89 @@ export default function TaskModal({ task, teams, onSave, onDelete, onClose }: Ta
               onChange={e => set('assignee', e.target.value)}
             />
           </div>
+
+          {/* Dependencies */}
+          <div className="grid gap-1.5">
+            <button
+              type="button"
+              className="flex items-center justify-between text-xs font-medium text-slate-400 uppercase tracking-wider hover:text-slate-200 transition-colors"
+              onClick={() => setShowDeps(v => !v)}
+            >
+              <span className="flex items-center gap-1.5">
+                Dependencies
+                {form.dependencies.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 normal-case font-normal tracking-normal">
+                    {form.dependencies.length} selected
+                  </span>
+                )}
+                {conflictIds.size > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 normal-case font-normal tracking-normal">
+                    {conflictIds.size} conflict{conflictIds.size > 1 ? 's' : ''}
+                  </span>
+                )}
+              </span>
+              <span className="text-slate-500">{showDeps ? '▲' : '▼'}</span>
+            </button>
+
+            {showDeps && (
+              <div className="rounded-lg border border-slate-700 bg-slate-800/50 overflow-hidden">
+                {/* Search */}
+                <div className="px-3 py-2 border-b border-slate-700">
+                  <input
+                    className="w-full bg-transparent text-slate-200 text-sm placeholder-slate-500 focus:outline-none"
+                    placeholder="Search activities..."
+                    value={depSearch}
+                    onChange={e => setDepSearch(e.target.value)}
+                  />
+                </div>
+                {/* Task list */}
+                <div className="max-h-48 overflow-y-auto divide-y divide-slate-700/50">
+                  {availableTasks.length === 0 ? (
+                    <p className="px-3 py-3 text-xs text-slate-500 text-center">No activities found</p>
+                  ) : availableTasks.map(t => {
+                    const team = teamMap[t.teamId];
+                    const isSelected = form.dependencies.includes(t.id);
+                    const isConflict = conflictIds.has(t.id);
+                    return (
+                      <label
+                        key={t.id}
+                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500/10' : 'hover:bg-slate-700/50'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-indigo-500 flex-none"
+                          checked={isSelected}
+                          onChange={e => toggleDep(t.id, e.target.checked)}
+                        />
+                        {team && (
+                          <span className="w-2 h-2 rounded-full flex-none" style={{ backgroundColor: team.color }} />
+                        )}
+                        <span className="flex-1 text-xs text-slate-200 truncate">{t.name}</span>
+                        {team && (
+                          <span className="text-xs text-slate-500 flex-none truncate max-w-[80px]">{team.name}</span>
+                        )}
+                        {isConflict && isSelected && (
+                          <span title="This dependency ends after this task starts" className="text-amber-400 text-xs flex-none">⚠</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Conflict warning */}
+            {conflictIds.size > 0 && (
+              <p className="text-xs text-amber-400 flex items-center gap-1.5">
+                <span>⚠</span>
+                {conflictIds.size} selected {conflictIds.size === 1 ? 'dependency ends' : 'dependencies end'} after this activity&apos;s start date.
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-700 bg-slate-900">
+        <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-700 bg-slate-900 flex-none">
           {task && onDelete && (
             confirmDelete ? (
               <>

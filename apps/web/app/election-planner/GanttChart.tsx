@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Task, Team, TimeScale } from './types';
 
 interface GanttChartProps {
@@ -48,6 +48,7 @@ export default function GanttChart({
 }: GanttChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [todayOffset, setTodayOffset] = useState(0);
+  const [showDeps, setShowDeps] = useState(true);
 
   // Compute date range
   const allDates = tasks.flatMap(t => [parseDate(t.startDate), parseDate(t.endDate)]);
@@ -116,6 +117,53 @@ export default function GanttChart({
   const ROW_H = 44;
   const HEADER_H = 56;
   const LABEL_W = 260;
+  const BAR_TOP = 8; // top offset within row
+  const BAR_H = 28; // bar height
+
+  // Compute task positions for dependency arrows
+  const taskPositions = useMemo(() => {
+    const map: Record<string, { rowY: number; barLeft: number; barRight: number }> = {};
+    let rowOffset = 0;
+    for (const { tasks: tTasks } of teamGroups) {
+      rowOffset += ROW_H; // skip team header row
+      for (const task of tTasks) {
+        const start = parseDate(task.startDate);
+        const end = parseDate(task.endDate);
+        const barLeft = daysBetween(minDate, start) * DAY_WIDTH;
+        const barRight = (daysBetween(minDate, end) + 1) * DAY_WIDTH;
+        const rowY = rowOffset + ROW_H / 2;
+        map[task.id] = { rowY, barLeft, barRight };
+        rowOffset += ROW_H;
+      }
+    }
+    return map;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, teams, timeScale]);
+
+  const totalRowsHeight = teamGroups.reduce((sum, g) => sum + (1 + g.tasks.length) * ROW_H, 0);
+
+  // Build dependency arrows data
+  const arrows = useMemo(() => {
+    const result: { x1: number; y1: number; x2: number; y2: number; conflict: boolean }[] = [];
+    for (const task of tasks) {
+      const to = taskPositions[task.id];
+      if (!to) continue;
+      for (const depId of task.dependencies) {
+        const from = taskPositions[depId];
+        if (!from) continue;
+        const dep = tasks.find(t => t.id === depId);
+        const conflict = dep ? dep.endDate > task.startDate : false;
+        result.push({
+          x1: from.barRight,
+          y1: from.rowY,
+          x2: to.barLeft,
+          y2: to.rowY,
+          conflict,
+        });
+      }
+    }
+    return result;
+  }, [tasks, taskPositions]);
 
   function taskBar(task: Task, team: Team) {
     const start = parseDate(task.startDate);
@@ -154,6 +202,11 @@ export default function GanttChart({
         <div className="hidden group-hover:flex absolute -top-10 left-0 z-30 min-w-max bg-slate-800 border border-slate-600 text-slate-100 text-xs rounded-lg px-3 py-2 shadow-xl flex-col gap-0.5">
           <span className="font-semibold">{task.name}</span>
           <span className="text-slate-400">{task.startDate} → {task.endDate} | {task.progress}% done</span>
+          {task.dependencies.length > 0 && (
+            <span className="text-slate-400">
+              {task.dependencies.length} {task.dependencies.length === 1 ? 'dependency' : 'dependencies'}
+            </span>
+          )}
         </div>
       </div>
     );
@@ -173,6 +226,22 @@ export default function GanttChart({
           <span className="w-0.5 h-4 bg-blue-400 rounded" />Today
           <span className="w-0.5 h-4 bg-red-400 rounded ml-2" />Election Day
         </span>
+        {/* Dependency toggle */}
+        <button
+          onClick={() => setShowDeps(v => !v)}
+          className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border transition-colors text-xs ${
+            showDeps
+              ? 'border-indigo-500 text-indigo-300 bg-indigo-500/10'
+              : 'border-slate-600 text-slate-400 hover:border-slate-500'
+          }`}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="2" cy="6" r="1.5" fill="currentColor" />
+            <circle cx="10" cy="6" r="1.5" fill="currentColor" />
+            <path d="M3.5 6 H8.5" stroke="currentColor" strokeWidth="1.2" markerEnd="url(#arr)" />
+          </svg>
+          Dependencies
+        </button>
       </div>
 
       <div className="flex overflow-hidden" style={{ minHeight: 300 }}>
@@ -233,33 +302,82 @@ export default function GanttChart({
             </div>
 
             {/* Rows */}
-            {teamGroups.map(({ team, tasks: tTasks }) => (
-              <div key={team.id}>
-                {/* Team header row — background stripe */}
-                <div
-                  className="border-b border-slate-700/60"
-                  style={{ height: ROW_H, background: team.color + '0c' }}
-                />
-                {/* Task rows */}
-                {tTasks.map(task => (
+            <div style={{ position: 'relative' }}>
+              {teamGroups.map(({ team, tasks: tTasks }) => (
+                <div key={team.id}>
+                  {/* Team header row — background stripe */}
                   <div
-                    key={task.id}
-                    className="relative border-b border-slate-800"
-                    style={{ height: ROW_H }}
-                  >
-                    {/* Column gridlines */}
-                    {headerCols.reduce((acc, col, i) => {
-                      const x = headerCols.slice(0, i).reduce((s, c) => s + c.days * DAY_WIDTH, 0);
-                      acc.push(
-                        <div key={i} className="absolute top-0 bottom-0 border-r border-slate-800/50" style={{ left: x + col.days * DAY_WIDTH }} />
-                      );
-                      return acc;
-                    }, [] as React.ReactNode[])}
-                    {taskBar(task, team)}
-                  </div>
-                ))}
-              </div>
-            ))}
+                    className="border-b border-slate-700/60"
+                    style={{ height: ROW_H, background: team.color + '0c' }}
+                  />
+                  {/* Task rows */}
+                  {tTasks.map(task => (
+                    <div
+                      key={task.id}
+                      className="relative border-b border-slate-800"
+                      style={{ height: ROW_H }}
+                    >
+                      {/* Column gridlines */}
+                      {headerCols.reduce((acc, col, i) => {
+                        const x = headerCols.slice(0, i).reduce((s, c) => s + c.days * DAY_WIDTH, 0);
+                        acc.push(
+                          <div key={i} className="absolute top-0 bottom-0 border-r border-slate-800/50" style={{ left: x + col.days * DAY_WIDTH }} />
+                        );
+                        return acc;
+                      }, [] as React.ReactNode[])}
+                      {taskBar(task, team)}
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              {/* Dependency arrows SVG overlay */}
+              {showDeps && arrows.length > 0 && (
+                <svg
+                  className="absolute top-0 left-0 pointer-events-none"
+                  width={totalWidth}
+                  height={totalRowsHeight}
+                  style={{ overflow: 'visible' }}
+                >
+                  <defs>
+                    <marker id="dep-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                      <path d="M0,0 L0,6 L6,3 z" fill="#818cf8" />
+                    </marker>
+                    <marker id="dep-arrow-conflict" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                      <path d="M0,0 L0,6 L6,3 z" fill="#fbbf24" />
+                    </marker>
+                  </defs>
+                  {arrows.map((a, i) => {
+                    const color = a.conflict ? '#fbbf24' : '#818cf8';
+                    const markerId = a.conflict ? 'dep-arrow-conflict' : 'dep-arrow';
+                    // Elbow connector: from right of dep bar to left of task bar
+                    const ELBOW = 10;
+                    let d: string;
+                    if (a.x1 + ELBOW < a.x2 - ELBOW) {
+                      // Normal: dep ends before task starts — L-shaped elbow
+                      const midX = (a.x1 + a.x2) / 2;
+                      d = `M${a.x1},${a.y1} H${midX} V${a.y2} H${a.x2 - 2}`;
+                    } else {
+                      // Conflict: dep ends after task starts — route around
+                      const rightX = a.x1 + ELBOW;
+                      d = `M${a.x1},${a.y1} H${rightX} V${a.y2} H${a.x2 - 2}`;
+                    }
+                    return (
+                      <path
+                        key={i}
+                        d={d}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={1.5}
+                        strokeOpacity={0.7}
+                        strokeDasharray={a.conflict ? '4 2' : undefined}
+                        markerEnd={`url(#${markerId})`}
+                      />
+                    );
+                  })}
+                </svg>
+              )}
+            </div>
 
             {/* Today line */}
             {todayOffset > 0 && todayOffset < totalWidth && (

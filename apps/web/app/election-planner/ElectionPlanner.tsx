@@ -419,6 +419,7 @@ export default function ElectionPlanner() {
         <TaskModal
           task={modalTask}
           teams={plan.teams}
+          allTasks={plan.tasks}
           onSave={handleSaveTask}
           onDelete={handleDeleteTask}
           onClose={() => setModalTask(undefined)}
