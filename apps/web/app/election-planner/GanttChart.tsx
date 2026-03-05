@@ -117,8 +117,6 @@ export default function GanttChart({
   const ROW_H = 44;
   const HEADER_H = 56;
   const LABEL_W = 260;
-  const BAR_TOP = 8; // top offset within row
-  const BAR_H = 28; // bar height
 
   // Compute task positions for dependency arrows
   const taskPositions = useMemo(() => {
