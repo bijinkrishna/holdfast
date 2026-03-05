@@ -54,6 +54,23 @@ export default function Home() {
       </section>
 
       <section className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <h2 className="text-lg font-medium text-teal-200">Modules</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Link
+            href="/election-planner"
+            className="flex flex-col gap-2 rounded-xl border border-teal-800 bg-teal-950/40 p-5 hover:border-teal-600 hover:bg-teal-900/30 transition-colors group"
+          >
+            <span className="text-2xl">🗳️</span>
+            <span className="font-semibold text-teal-300 group-hover:text-teal-200">Election Planner</span>
+            <span className="text-sm text-slate-400">
+              Gantt-chart based planning &amp; monitoring tool for WB Legislative Assembly
+              election preparatory activities across all teams.
+            </span>
+          </Link>
+        </div>
+      </section>
+
+      <section className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
         <h2 className="text-lg font-medium text-teal-200">Next steps</h2>
         <ul className="grid gap-3 text-sm text-slate-200">
           <li>
