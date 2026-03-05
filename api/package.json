@@ -11,18 +11,11 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/supabase-js": "^2.80.0",
-    "autoprefixer": "^10.4.21",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
-    "next": "^16.0.1",
-    "postcss": "^8.4.31",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "tailwindcss": "^4.1.17",
     "twilio": "^5.10.4"
   },
   "devDependencies": {
