@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@next/env": "^14.2.12",
+    "@supabase/supabase-js": "^2.80.0",
     "@swc/helpers": "^0.5.5",
     "next": "14.2.12",
     "react": "^18",
