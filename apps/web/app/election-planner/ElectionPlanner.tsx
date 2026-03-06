@@ -5,6 +5,7 @@ import { Task, ViewMode, TimeScale, ElectionPlan } from './types';
 import { defaultElectionPlan } from './defaultData';
 import GanttChart from './GanttChart';
 import TaskModal from './TaskModal';
+import { loadPlan, upsertPlan } from './actions';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper components
@@ -50,10 +51,14 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'wb-election-planner-v1';
+const PLAN_ID_KEY = 'wb-election-plan-id-v1';
+
+type SyncStatus = 'loading' | 'idle' | 'saving' | 'saved' | 'error';
 
 export default function ElectionPlanner() {
   const [plan, setPlan] = useState<ElectionPlan>(defaultElectionPlan);
+  const [planId, setPlanId] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
   const [view, setView] = useState<ViewMode>('gantt');
   const [timeScale, setTimeScale] = useState<TimeScale>('month');
   const [modalTask, setModalTask] = useState<Task | null | undefined>(undefined); // undefined = closed
@@ -63,18 +68,46 @@ export default function ElectionPlanner() {
   const [editingPlan, setEditingPlan] = useState(false);
   const [planForm, setPlanForm] = useState({ title: plan.title, electionDate: plan.electionDate, district: plan.district });
 
-  // Persist to localStorage
+  // Load plan from DB on mount
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try { setPlan(JSON.parse(stored)); } catch { /* ignore */ }
+    async function initPlan() {
+      const storedId = localStorage.getItem(PLAN_ID_KEY);
+      if (storedId) {
+        const loaded = await loadPlan(storedId);
+        if (loaded) {
+          setPlan(loaded);
+          setPlanId(storedId);
+          setSyncStatus('idle');
+          return;
+        }
+      }
+      // No plan in DB yet — persist the default plan to DB
+      try {
+        const newId = await upsertPlan(null, defaultElectionPlan);
+        localStorage.setItem(PLAN_ID_KEY, newId);
+        setPlanId(newId);
+      } catch {
+        // DB not configured — silently continue with in-memory state
+      }
+      setSyncStatus('idle');
     }
+    initPlan();
   }, []);
 
   const savePlan = useCallback((updated: ElectionPlan) => {
-    setPlan(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  }, []);
+    setPlan(updated); // optimistic update
+    setSyncStatus('saving');
+    upsertPlan(planId, updated)
+      .then(id => {
+        if (id !== planId) {
+          setPlanId(id);
+          localStorage.setItem(PLAN_ID_KEY, id);
+        }
+        setSyncStatus('saved');
+        setTimeout(() => setSyncStatus(s => s === 'saved' ? 'idle' : s), 2000);
+      })
+      .catch(() => setSyncStatus('error'));
+  }, [planId]);
 
   function handleSaveTask(task: Task) {
     const exists = plan.tasks.find(t => t.id === task.id);
@@ -97,8 +130,9 @@ export default function ElectionPlanner() {
 
   function handleReset() {
     if (!window.confirm('Reset to default election plan? All changes will be lost.')) return;
-    localStorage.removeItem(STORAGE_KEY);
-    setPlan(defaultElectionPlan);
+    localStorage.removeItem(PLAN_ID_KEY);
+    setPlanId(null);
+    savePlan(defaultElectionPlan);
   }
 
   // Filtered tasks
@@ -120,7 +154,7 @@ export default function ElectionPlanner() {
   const daysLeft = daysUntil(plan.electionDate);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col" aria-busy={syncStatus === 'loading'}>
       {/* ─── Header ─── */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
@@ -174,6 +208,28 @@ export default function ElectionPlanner() {
               >{v}</button>
             ))}
           </div>
+
+          {/* Sync status indicator */}
+          {syncStatus === 'loading' && (
+            <span className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-slate-400 animate-pulse" />Loading…
+            </span>
+          )}
+          {syncStatus === 'saving' && (
+            <span className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />Saving…
+            </span>
+          )}
+          {syncStatus === 'saved' && (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />Saved
+            </span>
+          )}
+          {syncStatus === 'error' && (
+            <span className="flex items-center gap-1.5 text-xs text-red-400" title="Could not reach database">
+              <span className="w-2 h-2 rounded-full bg-red-400" />Sync failed
+            </span>
+          )}
 
           <button
             onClick={() => setModalTask(null)}
@@ -411,7 +467,8 @@ export default function ElectionPlanner() {
 
       {/* ─── Footer ─── */}
       <footer className="border-t border-slate-800 px-4 py-3 text-center text-xs text-slate-600">
-        District Election Officer · West Bengal LA Elections · Data stored locally in your browser
+        District Election Officer · West Bengal LA Elections · Data persisted to Supabase
+        {planId && <span className="ml-2 font-mono opacity-50">· {planId.slice(0, 8)}</span>}
       </footer>
 
       {/* ─── Task modal ─── */}
