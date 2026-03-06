@@ -1,5 +1,5 @@
 export type TaskStatus = 'not-started' | 'in-progress' | 'completed' | 'delayed' | 'on-hold';
-export type ViewMode = 'gantt' | 'list' | 'dashboard';
+export type ViewMode = 'gantt' | 'list' | 'dashboard' | 'manage';
 export type TimeScale = 'week' | 'month';
 
 export interface Team {

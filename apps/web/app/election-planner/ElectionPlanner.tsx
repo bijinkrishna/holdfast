@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Task, ViewMode, TimeScale, ElectionPlan } from './types';
+import { Task, Team, ViewMode, TimeScale, ElectionPlan } from './types';
 import { defaultElectionPlan } from './defaultData';
 import GanttChart from './GanttChart';
 import TaskModal from './TaskModal';
+import TeamModal from './TeamModal';
 import { loadPlan, upsertPlan } from './actions';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +63,7 @@ export default function ElectionPlanner() {
   const [view, setView] = useState<ViewMode>('gantt');
   const [timeScale, setTimeScale] = useState<TimeScale>('month');
   const [modalTask, setModalTask] = useState<Task | null | undefined>(undefined); // undefined = closed
+  const [modalTeam, setModalTeam] = useState<Team | null | undefined>(undefined); // undefined = closed
   const [filterTeam, setFilterTeam] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -135,6 +137,22 @@ export default function ElectionPlanner() {
     savePlan(defaultElectionPlan);
   }
 
+  function handleSaveTeam(team: Team) {
+    const exists = plan.teams.find(t => t.id === team.id);
+    const teams = exists
+      ? plan.teams.map(t => t.id === team.id ? team : t)
+      : [...plan.teams, team];
+    savePlan({ ...plan, teams });
+    setModalTeam(undefined);
+  }
+
+  function handleDeleteTeam(teamId: string) {
+    const teams = plan.teams.filter(t => t.id !== teamId);
+    const tasks = plan.tasks.filter(t => t.teamId !== teamId);
+    savePlan({ ...plan, teams, tasks });
+    setModalTeam(undefined);
+  }
+
   // Filtered tasks
   const filteredTasks = plan.tasks.filter(t => {
     if (filterTeam !== 'all' && t.teamId !== filterTeam) return false;
@@ -200,7 +218,7 @@ export default function ElectionPlanner() {
 
           {/* View toggle */}
           <div className="flex rounded-xl border border-slate-700 overflow-hidden">
-            {(['dashboard', 'gantt', 'list'] as ViewMode[]).map(v => (
+            {(['dashboard', 'gantt', 'list', 'manage'] as ViewMode[]).map(v => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -463,6 +481,190 @@ export default function ElectionPlanner() {
             )}
           </div>
         )}
+
+        {/* ── Manage view ── */}
+        {view === 'manage' && (
+          <div className="flex flex-col gap-8">
+
+            {/* ── Teams section ── */}
+            <section>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-slate-200">Teams</h2>
+                <button
+                  onClick={() => setModalTeam(null)}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+                >+ Add Team</button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {plan.teams.map(team => {
+                  const teamTasks = plan.tasks.filter(t => t.teamId === team.id);
+                  const done = teamTasks.filter(t => t.status === 'completed').length;
+                  return (
+                    <div
+                      key={team.id}
+                      className="rounded-xl border bg-slate-900 p-4 flex flex-col gap-3"
+                      style={{ borderColor: team.color + '44' }}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="w-3 h-3 rounded-full flex-none mt-0.5" style={{ backgroundColor: team.color }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate" style={{ color: team.color }}>{team.name}</p>
+                          <p className="text-xs text-slate-500 truncate">{team.lead || '—'}</p>
+                        </div>
+                        <button
+                          onClick={() => setModalTeam(team)}
+                          className="text-slate-500 hover:text-slate-200 text-xs px-2 py-1 rounded hover:bg-slate-700 transition-colors flex-none"
+                        >Edit</button>
+                      </div>
+                      {team.description && (
+                        <p className="text-xs text-slate-500 leading-relaxed">{team.description}</p>
+                      )}
+                      <div className="flex gap-3 text-xs text-slate-500 mt-auto pt-1 border-t border-slate-800">
+                        <span>{teamTasks.length} activit{teamTasks.length !== 1 ? 'ies' : 'y'}</span>
+                        <span className="text-emerald-500">{done} done</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* ── Activities section ── */}
+            <section>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-slate-200">Activities</h2>
+                <button
+                  onClick={() => setModalTask(null)}
+                  className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors"
+                >+ Add Activity</button>
+              </div>
+
+              {/* Search + filter row */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <input
+                  className="rounded-lg bg-slate-800 border border-slate-700 text-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 w-52"
+                  placeholder="Search activities..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+                <select
+                  className="rounded-lg bg-slate-800 border border-slate-700 text-slate-200 px-3 py-1.5 text-sm focus:outline-none"
+                  value={filterTeam}
+                  onChange={e => setFilterTeam(e.target.value)}
+                >
+                  <option value="all">All Teams</option>
+                  {plan.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <select
+                  className="rounded-lg bg-slate-800 border border-slate-700 text-slate-200 px-3 py-1.5 text-sm focus:outline-none"
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="not-started">Not Started</option>
+                  <option value="in-progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="delayed">Delayed</option>
+                  <option value="on-hold">On Hold</option>
+                </select>
+                <span className="ml-auto text-xs text-slate-500 self-center">
+                  {filteredTasks.length} of {plan.tasks.length} activities
+                </span>
+              </div>
+
+              {/* Table */}
+              <div className="rounded-xl border border-slate-700 bg-slate-900 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-700 bg-slate-800/60 text-xs text-slate-400 uppercase tracking-wider">
+                        <th className="text-left px-4 py-3 font-medium">Activity</th>
+                        <th className="text-left px-4 py-3 font-medium">Team</th>
+                        <th className="text-left px-4 py-3 font-medium hidden sm:table-cell">Dates</th>
+                        <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Status</th>
+                        <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Priority</th>
+                        <th className="text-right px-4 py-3 font-medium w-24">Progress</th>
+                        <th className="px-4 py-3 w-20" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {filteredTasks.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="text-center py-10 text-slate-500 text-sm">
+                            No activities match your filters.
+                          </td>
+                        </tr>
+                      ) : filteredTasks.map(task => {
+                        const team = plan.teams.find(t => t.id === task.teamId);
+                        return (
+                          <tr key={task.id} className="hover:bg-slate-800/40 transition-colors group">
+                            <td className="px-4 py-3">
+                              <p className="text-slate-200 font-medium truncate max-w-[200px]">{task.name}</p>
+                              {task.description && (
+                                <p className="text-xs text-slate-500 truncate max-w-[200px]">{task.description}</p>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {team && (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full flex-none" style={{ backgroundColor: team.color }} />
+                                  <span className="text-slate-400 text-xs truncate">{team.name}</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 hidden sm:table-cell">
+                              <p className="text-xs text-slate-400">{task.startDate}</p>
+                              <p className="text-xs text-slate-500">→ {task.endDate}</p>
+                            </td>
+                            <td className="px-4 py-3 hidden md:table-cell">
+                              <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_BG[task.status]}`}>
+                                {STATUS_LABEL[task.status]}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 hidden lg:table-cell">
+                              <span className={`text-xs px-2 py-0.5 rounded-full border ${PRIORITY_BG[task.priority]}`}>
+                                {task.priority}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden hidden sm:block">
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{ width: `${task.progress}%`, backgroundColor: team?.color ?? '#6366f1' }}
+                                  />
+                                </div>
+                                <span className="text-xs text-slate-400 w-8 text-right">{task.progress}%</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => setModalTask(task)}
+                                  className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                                  title="Edit"
+                                >✎</button>
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Delete "${task.name}"?`)) {
+                                      savePlan({ ...plan, tasks: plan.tasks.filter(t => t.id !== task.id) });
+                                    }
+                                  }}
+                                  className="p-1.5 rounded hover:bg-red-900/50 text-slate-500 hover:text-red-400 transition-colors"
+                                  title="Delete"
+                                >✕</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
       </main>
 
       {/* ─── Footer ─── */}
@@ -480,6 +682,17 @@ export default function ElectionPlanner() {
           onSave={handleSaveTask}
           onDelete={handleDeleteTask}
           onClose={() => setModalTask(undefined)}
+        />
+      )}
+
+      {/* ─── Team modal ─── */}
+      {modalTeam !== undefined && (
+        <TeamModal
+          team={modalTeam}
+          taskCount={modalTeam ? plan.tasks.filter(t => t.teamId === modalTeam.id).length : 0}
+          onSave={handleSaveTeam}
+          onDelete={handleDeleteTeam}
+          onClose={() => setModalTeam(undefined)}
         />
       )}
     </div>
