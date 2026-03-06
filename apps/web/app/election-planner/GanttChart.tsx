@@ -47,8 +47,50 @@ export default function GanttChart({
   tasks, teams, electionDate, timeScale, onTaskClick,
 }: GanttChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
   const [todayOffset, setTodayOffset] = useState(0);
   const [showDeps, setShowDeps] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
+  async function handleDownloadPDF() {
+    if (!chartRef.current || !scrollRef.current) return;
+    setExporting(true);
+    try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ]);
+
+      const scroll = scrollRef.current;
+      const chart = chartRef.current;
+
+      // Temporarily expand scroll area to full width so everything is captured
+      const prevOverflow = scroll.style.overflow;
+      const prevWidth = scroll.style.width;
+      scroll.style.overflow = 'visible';
+      scroll.style.width = `${totalWidth}px`;
+
+      const canvas = await html2canvas(chart, {
+        scale: 1.5,
+        useCORS: true,
+        logging: false,
+        width: chart.scrollWidth,
+        height: chart.scrollHeight,
+        windowWidth: chart.scrollWidth,
+      });
+
+      // Restore
+      scroll.style.overflow = prevOverflow;
+      scroll.style.width = prevWidth;
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [canvas.width, canvas.height] });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`election-gantt-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   // Compute date range
   const allDates = tasks.flatMap(t => [parseDate(t.startDate), parseDate(t.endDate)]);
@@ -211,7 +253,7 @@ export default function GanttChart({
   }
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-700 bg-slate-900 overflow-hidden">
+    <div ref={chartRef} className="flex flex-col rounded-2xl border border-slate-700 bg-slate-900 overflow-hidden">
       {/* Legend */}
       <div className="flex flex-wrap gap-4 px-4 py-3 border-b border-slate-700 bg-slate-800/50 text-xs">
         {Object.entries({ 'Completed': 'bg-emerald-400', 'In Progress': 'bg-blue-400', 'Not Started': 'bg-slate-500', 'Delayed': 'bg-red-400', 'On Hold': 'bg-yellow-400' }).map(([label, cls]) => (
@@ -239,6 +281,27 @@ export default function GanttChart({
             <path d="M3.5 6 H8.5" stroke="currentColor" strokeWidth="1.2" markerEnd="url(#arr)" />
           </svg>
           Dependencies
+        </button>
+
+        {/* PDF export */}
+        <button
+          onClick={handleDownloadPDF}
+          disabled={exporting}
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-slate-600 text-slate-400 hover:border-teal-500 hover:text-teal-300 transition-colors text-xs disabled:opacity-50 disabled:cursor-wait"
+        >
+          {exporting ? (
+            <>
+              <span className="w-3 h-3 rounded-full border-2 border-teal-400 border-t-transparent animate-spin" />
+              Exporting…
+            </>
+          ) : (
+            <>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M6 1v7M3.5 5.5L6 8l2.5-2.5M1 9.5v1a.5.5 0 00.5.5h9a.5.5 0 00.5-.5v-1" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Export PDF
+            </>
+          )}
         </button>
       </div>
 
